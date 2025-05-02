@@ -1,0 +1,18 @@
+version: '3.8' # Используем одну из свежих версий Docker Compose
+
+services:
+  postgres:
+    image: postgres:15 # Выбираем конкретную версию Postgres (например, 15)
+    container_name: ai_todo_bot_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_todo_bot_db} # Имя БД, берем из .env или используем дефолтное
+      POSTGRES_USER: ${POSTGRES_USER:-ai_todo_bot_user} # Имя пользователя
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecretpassword} # Пароль
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432" # Пробрасываем порт Postgres на твой Mac
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Сохраняем данные БД между перезапусками
+    restart: unless-stopped # Перезапускать контейнер, если он не был остановлен вручную
+
+volumes: # Объявляем volumes для хранения данных
+  postgres_data:

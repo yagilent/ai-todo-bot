@@ -1,0 +1,28 @@
+# requirements.txt
+
+# Telegram Bot Framework
+aiogram
+
+# Google Gemini API
+google-generativeai
+
+# Database
+alembic
+sqlalchemy[asyncio]
+asyncpg
+
+# Date/Time parsing and handling
+pytz
+pendulum
+
+# Configuration loading
+python-dotenv
+pydantic
+pydantic-settings
+email-validator
+
+# Scheduler
+APScheduler
+
+# Logging (опционально, можно использовать стандартный logging)
+loguru
