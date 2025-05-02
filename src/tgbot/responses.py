@@ -2,7 +2,7 @@
 
 import logging
 from typing import Optional
-from aiogram import types
+from aiogram import types, Bot
 import pendulum # Для форматирования дат
 
 # Импортируем модели для тайп-хинтов
@@ -105,7 +105,50 @@ async def send_task_operation_confirmation(
         except Exception as e2:
              logger.error(f"Failed to send task confirmation answer to user {message.from_user.id}: {e2}")
 
-# --- Другие функции для ответов (можно добавить позже) ---
-# async def send_simple_confirmation(message: types.Message, text: str): ...
-# async def send_error(message: types.Message, text: str): ...
-# async def send_clarification(message: types.Message, text: str): ...
+async def send_reminder_notification(
+    bot: Bot, # Принимает объект Bot
+    task: Task,
+    user: User # Принимает пользователя для таймзоны
+    ):
+    """
+    Формирует и отправляет сообщение-напоминание пользователю.
+    """
+    user_timezone = user.timezone
+    logger.info(f"Sending reminder for task {task.task_id} to user {user.telegram_id}")
+
+    # Формируем текст напоминания
+    reminder_lines = ["🔔 **Напоминание!**\n"]
+    title_safe = f"<b>{task.title}</b>: " if task.title else ""
+    description_safe = task.description or 'Без описания'
+    reminder_lines.append(f"\n{title_safe}<i>{description_safe}</i>")
+
+    # Форматируем срок
+    formatted_due = format_datetime_human(
+        date=task.due_date,
+        date_time=task.due_datetime,
+        has_time=task.has_time,
+        timezone=user_timezone
+    )
+    if formatted_due:
+        reminder_lines.append(f"\n📅 Срок: {formatted_due}")
+
+    reminder_lines.append(f"\n\n(ID: {task.task_id})") # ID для возможного реплая
+    reminder_text = "\n".join(reminder_lines)
+
+    # TODO: Создать и добавить инлайн-кнопки ("Сделано", "Отложить...")
+    # keyboard = create_reminder_keyboard(task.task_id)
+    keyboard = None # Пока без кнопок
+
+    try:
+        # Используем bot.send_message
+        await bot.send_message(
+            chat_id=user.telegram_id, # Берем ID из объекта user
+            text=reminder_text,
+            reply_markup=keyboard
+            )
+        logger.info(f"Successfully sent reminder for task {task.task_id} to user {user.telegram_id}")
+        return True # Возвращаем успех
+    except Exception as e:
+        # TODO: Более детальная обработка ошибок (BotBlocked, UserDeactivated etc.)
+        logger.error(f"Failed to send reminder notification for task {task.task_id} to user {user.telegram_id}: {e}")
+        return False # Возвращаем неуспех

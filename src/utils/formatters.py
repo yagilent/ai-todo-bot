@@ -72,10 +72,10 @@ def format_datetime_human(
     except Exception as e:
         logger.error(f"Error formatting date/datetime {base_dt_obj}: {e}", exc_info=True)
         # Запасной вариант
-        if has_time and due_datetime_obj:
-             return f"{due_datetime_obj.strftime('%Y-%m-%d %H:%M')} UTC (ошибка)"
-        elif due_date_obj:
-             return f"{due_date_obj.strftime('%Y-%m-%d')} (ошибка)"
+        if has_time and date_time:
+             return f"{date_time.strftime('%Y-%m-%d %H:%M')} UTC (ошибка)"
+        elif date:
+             return f"{date.strftime('%Y-%m-%d')} (ошибка)"
         else:
              return "(ошибка даты)"
 
