@@ -44,7 +44,7 @@ try:
         ]
         # Выбор модели (убедись, что выбрана подходящая и доступная)
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-preview-04-17", # Или gemini-pro, или другая
+            model_name="gemini-2.5-flash", # Или gemini-pro, или другая
             generation_config=generation_config,
             safety_settings=safety_settings
         )
