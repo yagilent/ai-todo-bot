@@ -38,9 +38,13 @@ async def find_and_reply(
             status=status          # Передаем status
         )
 
-        response_text = format_task_list(tasks, db_user.timezone, title_prefix)
         keyboard = create_tasks_keyboard(tasks, db_user)
-        await message.answer(response_text, reply_markup=keyboard) # Используем answer, а не reply
+        
+        if tasks:
+            response_text = f"{title_prefix}: {len(tasks)}"
+            await message.answer(response_text, reply_markup=keyboard)
+        else:
+            await message.answer(f"{title_prefix}: не найдено.")
 
     except Exception as e:
         logger.error(f"Error processing command '{message.text}' for user {db_user.telegram_id}: {e}", exc_info=True)

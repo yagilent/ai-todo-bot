@@ -9,6 +9,54 @@ from src.database.models import Task
 
 logger = logging.getLogger(__name__)
 
+def format_reminder_time_human(
+    reminder_datetime: Optional[datetime.datetime], # UTC
+    timezone: str
+    ) -> Optional[str]:
+    """
+    НОВАЯ УПРОЩЁННАЯ функция - форматирует только время напоминания.
+    Время события больше не используется.
+    """
+    if not reminder_datetime:
+        return None
+
+    try:
+        # Конвертируем UTC время напоминания в локальную зону
+        reminder_local = pendulum.instance(reminder_datetime).in_timezone(timezone)
+        now_local = pendulum.now(timezone)
+        
+        # Форматируем дату
+        if reminder_local.is_same_day(now_local): 
+            date_str = "сегодня"
+        elif reminder_local.is_same_day(now_local.add(days=1)): 
+            date_str = "завтра"
+        elif reminder_local.is_same_day(now_local.subtract(days=1)): 
+            date_str = "вчера"
+        else:
+            if now_local.start_of('week') <= reminder_local <= now_local.end_of('week').add(weeks=1):
+                try:
+                    with pendulum.locale('ru'): 
+                        day_name = reminder_local.format("dddd").capitalize()
+                    if not reminder_local.is_same_week(now_local): 
+                        date_str = f"{day_name}, {reminder_local.format('D MMM')}"
+                    else: 
+                        date_str = day_name
+                except Exception: 
+                    date_str = reminder_local.format("ddd, DD.MM")
+            else: 
+                date_str = reminder_local.format("D MMMM YYYY", locale='ru')
+
+        # Добавляем время
+        time_str = reminder_local.format(" в HH:mm")
+        
+        return f"{date_str}{time_str}"
+
+    except Exception as e:
+        logger.error(f"Error formatting reminder time {reminder_datetime}: {e}", exc_info=True)
+        return f"{reminder_datetime.strftime('%Y-%m-%d %H:%M')} UTC (ошибка)"
+
+
+# УСТАРЕВШАЯ функция - оставляем для обратной совместимости, но больше не используем
 def format_datetime_human(
     date: Optional[datetime.date],
     date_time: Optional[datetime.datetime], # UTC
@@ -16,71 +64,14 @@ def format_datetime_human(
     timezone: str
     ) -> Optional[str]:
     """
-    Форматирует дату или дату+время в человекочитаемый формат.
+    УСТАРЕВШАЯ функция для форматирования времени события.
+    Используйте format_reminder_time_human() для времени напоминания.
     """
-    base_dt_obj = date_time if has_time else date
-    if not base_dt_obj:
-        return None
-
-    try:
-        dt_local: pendulum.DateTime = None # Переменная для локального времени
-
-        # --- ИСПРАВЛЕНИЕ: Обработка date и datetime ---
-        if has_time and isinstance(base_dt_obj, datetime.datetime):
-            # Если есть время и это datetime (из due_datetime), конвертируем из UTC
-            dt_local = pendulum.instance(base_dt_obj).in_timezone(timezone)
-        elif not has_time and isinstance(base_dt_obj, datetime.date):
-            # Если времени нет и это date (из due_date), создаем datetime с 00:00 в ЛОКАЛЬНОЙ зоне
-            dt_local = pendulum.datetime(
-                base_dt_obj.year, base_dt_obj.month, base_dt_obj.day,
-                tz=timezone # Сразу указываем зону пользователя
-            )
-        else:
-            # Неожиданный тип или несоответствие has_time и типа данных
-            logger.warning(f"Unexpected data type or mismatch for formatting: "
-                           f"has_time={has_time}, type={type(base_dt_obj)}")
-            # Попробуем универсальный instance, но он может дать не то время для date
-            dt_local = pendulum.instance(base_dt_obj).in_timezone(timezone)
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-        now_local = pendulum.now(timezone)
-        date_str = ""
-        time_str = ""
-
-        # 1. Форматируем ДАТУ
-        if dt_local.is_same_day(now_local): date_str = "сегодня"
-        elif dt_local.is_same_day(now_local.add(days=1)): date_str = "завтра"
-        elif dt_local.is_same_day(now_local.subtract(days=1)): date_str = "вчера"
-        else:
-            if now_local.start_of('week') <= dt_local <= now_local.end_of('week').add(weeks=1):
-                try:
-                    with pendulum.locale('ru'): day_name = dt_local.format("dddd").capitalize()
-                    if not dt_local.is_same_week(now_local): date_str = f"{day_name}, {dt_local.format('D MMM')}"
-                    else: date_str = day_name
-                except Exception: date_str = dt_local.format("ddd, DD.MM")
-            else: date_str = dt_local.format("D MMMM YYYY", locale='ru')
-
-        # 2. Форматируем ВРЕМЯ (только если has_time == True)
-        if has_time:
-            # Проверяем, что время не полночь (на всякий случай)
-            if dt_local.time() != pendulum.Time(0, 0, 0):
-                 time_str = dt_local.format(" [в] HH:mm")
-
-        result_str = f"{date_str}{time_str}"
-        return result_str.strip()
-
-    except Exception as e:
-        logger.error(f"Error formatting date/datetime {base_dt_obj}: {e}", exc_info=True)
-        # Запасной вариант
-        if has_time and date_time:
-             return f"{date_time.strftime('%Y-%m-%d %H:%M')} UTC (ошибка)"
-        elif date:
-             return f"{date.strftime('%Y-%m-%d')} (ошибка)"
-        else:
-             return "(ошибка даты)"
+    # Теперь просто возвращаем None, так как время события больше не используется
+    return None
 
 def format_task_list(tasks: List[Task], timezone: str, criteria_text: Optional[str] = None) -> str:
-    """Форматирует ТЕКСТОВУЮ часть списка задач."""
+    """Форматирует ТЕКСТОВУЮ часть списка задач (используется редко, основной интерфейс - кнопки)."""
     if not tasks:
         return "✅ Задач, соответствующих вашему запросу, не найдено."
 
@@ -97,21 +88,27 @@ def format_task_list(tasks: List[Task], timezone: str, criteria_text: Optional[s
             line += f"<b>{title_safe}</b>: "
         line += f"<i>{description_safe}</i>"
 
-        # Форматируем срок с помощью утилиты
-        formatted_due = format_datetime_human(
-            date=task.due_date,       # Передаем date
-            date_time=task.due_datetime, # Передаем datetime
-            has_time=task.has_time,           # Передаем флаг
-            timezone=timezone
-        )
-        if formatted_due:
-            line += f" (<i>срок: {formatted_due}</i>)"
+        # Показываем время напоминания с правильной иконкой
+        if task.next_reminder_at:
+            formatted_reminder = format_reminder_time_human(
+                reminder_datetime=task.next_reminder_at,
+                timezone=timezone
+            )
+            if formatted_reminder:
+                # Проверяем, не прошло ли время напоминания
+                try:
+                    import pendulum
+                    now_local = pendulum.now(timezone)
+                    reminder_local = pendulum.instance(task.next_reminder_at).in_timezone(timezone)
+                    is_overdue = reminder_local < now_local
+                    
+                    # Выбираем иконку: перечеркнутый колокольчик если время прошло
+                    reminder_icon = "🔕" if is_overdue else "🔔"
+                    line += f" ({reminder_icon} <i>{formatted_reminder}</i>)"
+                except Exception as e:
+                    # Fallback при ошибке
+                    line += f" (🔔 <i>{formatted_reminder}</i>)"
 
-        # НЕ выводим ID здесь
-        #response_lines.append(line)
-
-    # Убираем подсказку про нажатие, т.к. пока нет функционала
-    # if tasks:
-    #     response_lines.append("\n\nНажмите на задачу, чтобы отметить/вернуть.")
+        response_lines.append(line)
 
     return "\n".join(response_lines)

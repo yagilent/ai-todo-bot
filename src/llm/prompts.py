@@ -1,91 +1,8 @@
-# src/llm/prompts.py
+# src/llm/prompts.py - НОВЫЕ КОРОТКИЕ ПРОМПТЫ
 
-# Промпт для Gemini для распознавания намерения и извлечения данных из текста пользователя
-# ВАЖНО: Все фигурные скобки, не являющиеся плейсхолдером {USER_TEXT}, удвоены {{ }}
-INTENT_RECOGNITION_PROMPT_TEMPLATE = """
-You are an AI assistant for a Telegram to-do list bot. Your task is to analyze the user's text (which will be in Russian) and transform it into one of the following structured intents: 'add_task', 'find_tasks', 'update_timezone', 'complete_task', 'reschedule_task', 'edit_task_description', 'snooze_task', or indicate 'clarification_needed' or 'unknown_intent'. Give priority to modification intents if the user seems to be referring to a previous task (e.g., replying or using context).
+# УСТАРЕВШИЕ ДЛИННЫЕ ПРОМПТЫ УДАЛЕНЫ. Теперь используются короткие промпты с цепочкой вызовов.
 
-Available intents and their parameters:
-
-1.  **add_task**: Add a new task.
-    *   `description` (string, required): Full description.
-    *   `due_date_time_text` (string, optional): Deadline/schedule text.
-    *   `reminder_text` (string, optional): Reminder instruction text.
-2.  **find_tasks**: Search for existing tasks.
-    *   `query_text` (string, required): User's search query.
-3.  **update_timezone**: Set or change timezone.
-    *   `location_text` (string, required): Text describing location/timezone.
-4.  **complete_task**: Mark a task as done. Triggered by "сделал", "готово", "выполнено", etc., especially in reply to a task message.
-    *   No parameters needed from LLM. Task ID comes from context.
-5.  **reschedule_task**: Change the due date of a task. Triggered by "перенеси на...", "срок...", "сделать в...", etc., in reply to a task.
-    *   `new_due_date_text` (string, required): The new deadline/schedule text.
-6.  **edit_task_description**: Modify the description of a task. Triggered by "измени текст на...", "добавь в описание...", "уточни задачу...", etc., in reply.
-    *   `new_description` (string, required): The new full description or the text to add/change.
-7.  **snooze_task**: Postpone the next reminder for a task. Triggered by "отложи", "напомни через...", "позже", **"вечером", "утром", "напомни тогда-то"**, etc., **especially when replying to a task message**.
-    *   `snooze_details` (string, required): Text describing when to remind next (e.g., "через 15 минут", "завтра утром", **"вечером"**).
-
-Your processing steps:
-1.  Read the user's text.
-2.  Determine the primary intent: `add_task`, `find_tasks`, `update_timezone`, `complete_task`, `reschedule_task`, `edit_task_description`, `snooze_task`. **If the user is replying to a task message and uses phrases like "позже", "вечером", "через X", strongly consider the 'snooze_task' intent.** Prioritize modification intents...
-3.  Extract relevant parameters for the identified intent.
-4.  If info is missing for an intent, classify as `clarification_needed`.
-5.  If no specific intent matches, classify as `unknown_intent`.
-6.  Format the response strictly as JSON.
-
-JSON Output Rules: (Use double curly braces {{ }} for examples)
-*   Success: `{{"status": "success", "intent": "...", "params": {{...}} }}`
-*   Clarification: `{{"status": "clarification_needed", "intent": "...", "question": "...", "partial_params": {{...}} }}`
-*   Unknown: `{{"status": "unknown_intent", "original_text": "..."}}`
-*   Error: `{{"status": "error", "message": "..."}}`
-
-Important Constraints:
-*   Do not include the task ID in the parameters; it will be handled externally based on context/reply.
-*   Extract text parameters accurately. Do not parse dates/times here.
-*   Return ONLY the JSON object. DO NOT generate code or explanations.
-
-Now, analyze the following user text:
-"{USER_TEXT}"
-
-Return ONLY the JSON object.
-"""
-
-DATE_PARSING_PROMPT_TEMPLATE = """
-You are a precise date and time parsing tool specialized in Russian language. Your ONLY task is to convert the user's textual deadline/schedule/reminder time into a specific JSON format. DO NOT generate any code or explanations.
-
-Input Information:
-*   **Current date/time in user's timezone:** {CURRENT_DATETIME_ISO} (**Use this as the reference point for all relative calculations like "завтра", "через 10 минут", "через час"**).
-*   User's timezone name: {USER_TIMEZONE}
-*   User's textual input: "{USER_DATE_TEXT}"
-
-Output Requirements:
-1.  Analyze the "User's textual input" based on the **"Current date/time"**. Understand relative terms ("сегодня", "завтра", "следующий понедельник", etc.) AND relative intervals ("через 5 минут", "через 2 часа", "через 3 дня").
-2.  Determine the **specific date** and **specific time** resulting from the user's input relative to the current time.
-3.  **`has_time` field:** Set to `true` if a specific time was mentioned or implied (e.g., "в 15:00", "через 10 минут", "утром", "вечером"). Set to `false` if only a date ("завтра", "1 мая") or vague period ("на выходных") was mentioned.
-4.  **`date_utc_iso` field:** Convert the determined specific date/time to **UTC** ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ). If `has_time` is `false`, use 00:00:00 in the user's timezone before converting to UTC.
-5.  **`recurrence_rule` field:** Determine if the input implies a recurring schedule... (остается как было) ...
-6.  If no specific date/time or recurrence can be determined, return nulls/false.
-7.  Return **ONLY** a single JSON object:
-    ```json
-    {{
-      "date_utc_iso": "YYYY-MM-DDTHH:MM:SSZ" | null,
-      "has_time": true | false | null,
-      "recurrence_rule": "RRULE_STRING" | null
-    }}
-    ```
-8.  **CRITICAL:** Do not write code, etc.
-
-Examples:
-*   User input: "через 10 минут", Current: 2025-04-29T10:00:00+02:00 -> {{ "date_utc_iso": "2025-04-29T08:10:00Z", "has_time": true, "recurrence_rule": null }}
-*   User input: "через 2 часа", Current: 2025-04-29T10:00:00+02:00 -> {{ "date_utc_iso": "2025-04-29T10:00:00Z", "has_time": true, "recurrence_rule": null }}
-*   User input: "завтра", Current: 2025-04-29T10:00:00+02:00 -> {{ "date_utc_iso": "2025-04-29T22:00:00Z", "has_time": false, "recurrence_rule": null }}
-*   User input: "завтра в 3 часа дня", Current: ..., Timezone: Europe/Moscow -> {{ "date_utc_iso": "...", "has_time": true, "recurrence_rule": null }}
-*   User input: "следующий понедельник", Current: ..., Timezone: Europe/Moscow -> {{ "date_utc_iso": "...", "has_time": false, "recurrence_rule": null }} (Time is 00:00 in UTC)
-*   User input: "каждый вторник в 10 утра", Current: ..., Timezone: Europe/Moscow -> {{ "date_utc_iso": "...", "has_time": true, "recurrence_rule": "FREQ=WEEKLY;BYDAY=TU;BYHOUR=10;BYMINUTE=0" }} (date is the *first* Tuesday 10 AM UTC)
-*   User input: "до конца недели", Current: ..., Timezone: Europe/Moscow -> {{ "date_utc_iso": "...", "has_time": false, "recurrence_rule": null }} (date is end of week, 23:59:59 maybe, or just the date 00:00:00) <-- Let's clarify this: Let's set date to the last day of the week at 00:00:00 UTC. has_time is false.
-*   User input: "не важно" -> {{ "date_utc_iso": null, "has_time": null, "recurrence_rule": null }}
-
-Parse the user input based on the provided context and return the JSON object.
-"""
+# СТАРЫЙ ДЛИННЫЙ ПРОМПТ ДЛЯ ПАРСИНГА ДАТ УДАЛЕН - больше не используется
 
 TIMEZONE_PARSING_PROMPT_TEMPLATE = """
 You are an expert in IANA timezones. Your task is to determine the correct IANA timezone name (e.g., 'Europe/Moscow', 'America/New_York', 'Asia/Tokyo', 'UTC') based on the user's input. The input might be a city, country, region, or UTC offset.
@@ -151,5 +68,174 @@ If creating a good short summary is difficult, just return the first 5-6 words o
 Do not add quotes around the title. Just return the title text.
 
 Concise Title:
+"""
+
+
+# src/llm/prompts.py - ДОБАВЛЯЕМ новые промпты, старые пока оставляем
+
+# === НОВЫЕ УПРОЩЕННЫЕ ПРОМПТЫ ===
+
+# 1. КОРОТКИЙ промпт для определения интента (вместо INTENT_RECOGNITION_PROMPT_TEMPLATE)
+SIMPLE_INTENT_DETECTION_PROMPT = """
+Analyze Russian text and return intent:
+
+add_task - создать задачу/напоминание
+find_tasks - найти/показать задачи  
+complete_task - отметить выполненной (ТОЛЬКО при ответе на сообщение бота)
+reschedule_task - изменить время напоминания (ТОЛЬКО при ответе на сообщение бота)
+edit_task_description - изменить описание задачи (ТОЛЬКО при ответе на сообщение бота)
+update_timezone - установить/изменить часовой пояс или местоположение
+unknown - не понятно
+
+ВАЖНО: Если это ответ на сообщение бота (reply=True), приоритет у контекстных интентов!
+
+Examples for NEW tasks (reply=False):
+"купить молоко завтра" → add_task
+"напомни про встречу" → add_task
+"напомни через час позвонить маме" → add_task
+
+Examples for REPLIES to bot messages (reply=True):
+"сделал" → complete_task
+"готово" → complete_task
+"выполнено" → complete_task
+
+"перенеси на завтра" → reschedule_task
+"отложи на вечер" → reschedule_task
+"напомни через 3 часа" → reschedule_task
+"сделаю в понедельник" → reschedule_task
+
+"измени на купить хлеб и молоко" → edit_task_description
+"поменяй описание на позвонить врачу" → edit_task_description
+"добавь в описание что нужно взять документы" → edit_task_description
+"уточни задачу: встреча с клиентом в офисе" → edit_task_description
+"исправь на написать отчет по продажам" → edit_task_description
+"смени текст" → edit_task_description
+
+Examples for other intents:
+"найди задачи про банк" → find_tasks
+"я в Барселоне" → update_timezone
+"переехал в Лондон" → update_timezone
+
+Text: "{USER_TEXT}"
+Is reply to bot message: {IS_REPLY}
+
+Return only JSON: {{"intent": "add_task"}}
+"""
+
+# 2. Промпт для парсинга задачи (только для add_task)
+TASK_PARSING_PROMPT = """
+Parse task creation request. Extract:
+1. Task description (what to do/remember) - include ALL context about when/where something happens
+2. Reminder time (when user wants to be notified)
+
+Rules:
+- Put ALL details about time/place into description
+- Reminder time = when user wants notification
+- If no reminder time specified, return null
+
+Examples:
+"купить молоко завтра" → 
+{{"description": "купить молоко", "reminder_time": "завтра"}}
+
+"напомни вечером воскресенья про встречу в понедельник в 10:00" → 
+{{"description": "встреча в понедельник в 10:00", "reminder_time": "воскресенье вечер"}}
+
+"написать письмо в банк во вторник" →
+{{"description": "написать письмо в банк", "reminder_time": "вторник"}}
+
+"купить подарок маме" →
+{{"description": "купить подарок маме", "reminder_time": null}}
+
+Text: "{USER_TEXT}"
+
+Return only JSON:
+"""
+
+# 3. Промпт для парсинга времени напоминания
+REMINDER_TIME_PARSING_PROMPT = """
+Convert reminder time text to specific datetime in UTC.
+
+Current time: {CURRENT_DATETIME_ISO} in {USER_TIMEZONE}
+Reminder text: "{REMINDER_TEXT}"
+
+Rules:
+- Always include specific time (hour:minute)
+- If only date given, use smart defaults:
+  - "утром" = 09:00
+  - "днем"/"день" = 12:00  
+  - "вечером" = 18:00
+  - "ночью" = 21:00
+  - No time specified = 12:00
+
+Examples:
+"завтра" → tomorrow at 12:00 in user timezone → convert to UTC
+"вечером воскресенья" → next Sunday at 18:00 → convert to UTC
+"через 2 часа" → current time + 2 hours → convert to UTC
+
+Return only JSON:
+{{"reminder_datetime_utc": "2025-01-15T10:00:00Z"}}
+"""
+
+# === ПРОМПТЫ ДЛЯ РЕКУРРЕНТНОСТИ (для будущего использования) ===
+
+RECURRING_DETECTION_PROMPT = """
+Analyze if task description contains recurring pattern.
+
+Examples:
+"каждый понедельник напоминай про встречу" → {{"is_recurring": true, "pattern": "каждый понедельник"}}
+"15 числа каждого месяца оплата интернета" → {{"is_recurring": true, "pattern": "15 числа каждого месяца"}}  
+"день рождения 15 марта" → {{"is_recurring": true, "pattern": "15 марта каждый год"}}
+"купить молоко завтра" → {{"is_recurring": false, "pattern": null}}
+
+Text: "{DESCRIPTION}"
+
+Return only JSON:
+"""
+
+RRULE_GENERATION_PROMPT = """
+Convert recurring pattern to RRULE format.
+
+Pattern: "{PATTERN}"
+First occurrence time: {FIRST_TIME}
+
+Examples:
+"каждый понедельник" → "FREQ=WEEKLY;BYDAY=MO"
+"15 числа каждого месяца" → "FREQ=MONTHLY;BYMONTHDAY=15"
+"15 марта каждый год" → "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15"
+
+Return only RRULE string or null:
+"""
+
+# === ПРОМПТЫ ДЛЯ ДРУГИХ ИНТЕНТОВ ===
+
+RESCHEDULE_TIME_EXTRACTION_PROMPT = """
+Extract new reminder time from reschedule request text.
+
+User wants to reschedule a task reminder. Extract when they want to be reminded.
+
+Examples:
+"перенеси на завтра" → {{"new_reminder_time": "завтра"}}
+"отложи на вечер" → {{"new_reminder_time": "вечер"}}
+"напомни через 3 часа" → {{"new_reminder_time": "через 3 часа"}}
+"сделаю в понедельник" → {{"new_reminder_time": "понедельник"}}
+"перенеси на завтра в 15:00" → {{"new_reminder_time": "завтра в 15:00"}}
+
+Text: "{USER_TEXT}"
+
+Return only JSON:
+"""
+
+EDIT_DESCRIPTION_EXTRACTION_PROMPT = """
+Extract new task description from edit request.
+
+Examples:
+"измени на купить хлеб и молоко" → {{"new_description": "купить хлеб и молоко"}}
+"поменяй описание на позвонить врачу" → {{"new_description": "позвонить врачу"}}
+"добавь в описание что нужно взять документы" → {{"new_description": "взять документы"}}
+"уточни задачу: встреча с клиентом в офисе" → {{"new_description": "встреча с клиентом в офисе"}}
+
+Text: "{USER_TEXT}"
+
+Return only JSON:
 """
 

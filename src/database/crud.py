@@ -118,12 +118,13 @@ async def update_user_timezone(
 
 async def add_task(
     session: AsyncSession,
-    user_telegram_id: int, # --- ИЗМЕНЕНИЕ: Принимаем telegram_id ---
+    user_telegram_id: int,
     description: str,
     title: Optional[str] = None,
-    due_date: Optional[datetime.date] = None,
-    due_datetime: Optional[datetime.datetime] = None,
-    has_time: bool = False,
+    # УПРОЩЕНИЕ: Убираем поля времени события - оставляем только время напоминания
+    # due_date: Optional[datetime.date] = None,
+    # due_datetime: Optional[datetime.datetime] = None,
+    # has_time: bool = False,
     original_due_text: Optional[str] = None,
     is_repeating: bool = False,
     recurrence_rule: Optional[str] = None,
@@ -140,16 +141,17 @@ async def add_task(
          raise ValueError(f"User with telegram_id {user_telegram_id} not found.")
 
     new_task = Task(
-        user_telegram_id=user_telegram_id, # --- ИЗМЕНЕНИЕ: Используем правильное поле ---
+        user_telegram_id=user_telegram_id,
         description=description,
         title=title,
-        due_date=due_date if not has_time else None,
-        due_datetime=due_datetime if has_time else None,
-        has_time=has_time,
+        # УПРОЩЕНИЕ: Всегда устанавливаем время события в None/False
+        due_date=None,
+        due_datetime=None,
+        has_time=False,
         original_due_text=original_due_text,
         is_repeating=is_repeating,
         recurrence_rule=recurrence_rule,
-        next_reminder_at=next_reminder_at,
+        next_reminder_at=next_reminder_at,  # Только время напоминания важно
         raw_input=raw_input
     )
     session.add(new_task)
@@ -266,22 +268,22 @@ async def get_tasks_by_ids(
 async def update_task_due_date(
     session: AsyncSession,
     task_id: int,
-    new_due_date: Optional[datetime.date],
-    new_due_datetime: Optional[datetime.datetime], # UTC
-    new_has_time: bool,
+    # УПРОЩЕНИЕ: Убираем параметры времени события
+    # new_due_date: Optional[datetime.date],
+    # new_due_datetime: Optional[datetime.datetime], # UTC
+    # new_has_time: bool,
     new_original_due_text: Optional[str],
-    new_next_reminder_at: Optional[datetime.datetime] # UTC
-    # TODO: Добавить new_is_repeating, new_recurrence_rule
+    new_next_reminder_at: Optional[datetime.datetime] # UTC - только время напоминания
 ) -> Optional[Task]:
-    """Обновляет срок выполнения, текст срока и время следующего напоминания."""
+    """Обновляет время напоминания задачи (время события больше не используется)."""
     try:
         values_to_update = {
-            "due_date": new_due_date if not new_has_time else None,
-            "due_datetime": new_due_datetime if new_has_time else None,
-            "has_time": new_has_time,
+            # УПРОЩЕНИЕ: Всегда сбрасываем время события
+            "due_date": None,
+            "due_datetime": None,
+            "has_time": False,
             "original_due_text": new_original_due_text,
-            "next_reminder_at": new_next_reminder_at,
-            # TODO: Обновлять is_repeating, recurrence_rule
+            "next_reminder_at": new_next_reminder_at,  # Только время напоминания важно
         }
         stmt = update(Task).where(Task.task_id == task_id).values(
             **values_to_update
@@ -292,7 +294,7 @@ async def update_task_due_date(
         updated_task = result.scalar_one_or_none()
 
         if updated_task:
-            logger.info(f"Rescheduled task {task_id}. New due_date: {new_due_date}, next_reminder: {new_next_reminder_at}")
+            logger.info(f"Rescheduled task {task_id}. New due_date: None, next_reminder: {new_next_reminder_at}")
         else:
             logger.warning(f"Task {task_id} not found for rescheduling.")
         return updated_task
@@ -353,31 +355,30 @@ async def update_task_reminder_time(session: AsyncSession, task_id: int, new_rem
 async def find_tasks_by_criteria(
     session: AsyncSession,
     db_user: User,
-    search_text: Optional[str] = None, # Оставим возможность искать по тексту и в командах
-    start_date: Optional[datetime.datetime] = None, # Ожидаем UTC datetime
-    end_date: Optional[datetime.datetime] = None, # Ожидаем UTC datetime
+    search_text: Optional[str] = None, # Поиск по тексту в описании и заголовке
+    start_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
+    end_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
     status: Optional[str] = 'pending'
 ) -> List[Task]:
     """
-    Ищет задачи пользователя по структурированным критериям.
-    Используется для команд /today, /tomorrow и т.д.
+    УПРОЩЁННАЯ ВЕРСИЯ: Ищет задачи пользователя по критериям.
+    Теперь используется только время напоминания (next_reminder_at), время события не используется.
     """
     user_telegram_id = db_user.telegram_id
-    user_timezone = db_user.timezone
     logger.debug(f"Finding tasks by criteria for user {user_telegram_id}. "
-                 f"Search: '{search_text}', Start: {start_date}, End: {end_date}, Status: {status}")
+                 f"Search: '{search_text}', Reminder start: {start_date}, Reminder end: {end_date}, Status: {status}")
 
     stmt = select(Task).where(Task.user_telegram_id == user_telegram_id)
 
     # Фильтр по статусу
     if status == 'overdue':
+        # УПРОЩЕНИЕ: Просроченные - это те, у кого время напоминания прошло
         stmt = stmt.where(Task.status == 'pending')
-        # Просроченные - это те, у кого срок (due_date или due_datetime) меньше текущего UTC
         now_utc = pendulum.now('UTC')
         stmt = stmt.where(
-            or_(
-                (Task.has_time == False, Task.due_date < now_utc.date()), # noqa E712
-                (Task.has_time == True, Task.due_datetime < now_utc) # noqa E712
+            and_(
+                Task.next_reminder_at.is_not(None),
+                Task.next_reminder_at < now_utc
             )
         )
         start_date = None # Игнорируем даты для overdue
@@ -385,7 +386,7 @@ async def find_tasks_by_criteria(
     elif status and status != 'all':
         stmt = stmt.where(Task.status == status)
 
-    # Фильтр по текстовому запросу (если передан)
+    # Фильтр по текстовому запросу
     if search_text:
         search_pattern = f"%{search_text.lower()}%"
         stmt = stmt.where(
@@ -393,55 +394,22 @@ async def find_tasks_by_criteria(
             (Task.title.ilike(search_pattern))
         )
 
-    if start_date and end_date: # Применяем только если есть обе границы
-        # Конвертируем границы UTC в локальную дату для сравнения с Task.due_date
-        start_local_date = pendulum.instance(start_date).in_timezone(user_timezone).date()
-        end_local_date = pendulum.instance(end_date).in_timezone(user_timezone).date()
-
-        # Условие:
-        # Либо (has_time=False И due_date между локальными датами)
-        # Либо (has_time=True И due_datetime между UTC датами)
+    # УПРОЩЕНИЕ: Фильтрация только по времени напоминания
+    if start_date and end_date:
         stmt = stmt.where(
-            or_(
-                and_(
-                    Task.has_time == False, # noqa E712
-                    Task.due_date >= start_local_date,
-                    Task.due_date <= end_local_date
-                ),
-                and_(
-                    Task.has_time == True, # noqa E712
-                    Task.due_datetime >= start_date,
-                    Task.due_datetime <= end_date
-                )
+            and_(
+                Task.next_reminder_at >= start_date,
+                Task.next_reminder_at <= end_date
             )
         )
-    elif start_date: # Если только дата начала
-         start_local_date = pendulum.instance(start_date).in_timezone(user_timezone).date()
-         stmt = stmt.where(
-            or_(
-                 and_(Task.has_time == False, Task.due_date >= start_local_date), # noqa E712
-                 and_(Task.has_time == True, Task.due_datetime >= start_date) # noqa E712
-            )
-         )
-    elif end_date: # Если только дата конца
-        end_local_date = pendulum.instance(end_date).in_timezone(user_timezone).date()
-        stmt = stmt.where(
-             or_(
-                 and_(Task.has_time == False, Task.due_date <= end_local_date), # noqa E712
-                 and_(Task.has_time == True, Task.due_datetime <= end_date) # noqa E712
-             )
-         )
+    elif start_date:
+        stmt = stmt.where(Task.next_reminder_at >= start_date)
+    elif end_date:
+        stmt = stmt.where(Task.next_reminder_at <= end_date)
 
-    # Сортировка
+    # УПРОЩЁННАЯ сортировка: по времени напоминания, потом по дате создания
     stmt = stmt.order_by(
-        case(
-            (Task.has_time == True, Task.due_datetime), # noqa E712
-            # Приводим DATE к TIMESTAMP для корректной сортировки вместе с datetime
-            # Устанавливаем время на полдень UTC, чтобы задачи без времени шли "в середине" дня
-            else_=func.cast(Task.due_date, TIMESTAMP(timezone=True)) + datetime.timedelta(hours=12)
-            # Или просто приводим к TIMESTAMP (будет 00:00 UTC)
-            # else_=func.cast(Task.due_date, TIMESTAMP(timezone=True))
-        ).asc().nulls_last(),
+        Task.next_reminder_at.asc().nulls_last(),
         Task.created_at.asc()
     )
 

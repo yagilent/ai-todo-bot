@@ -93,11 +93,14 @@ async def handle_find_tasks(
         # 4. Получаем найденные задачи из БД по ID
         found_tasks = await get_tasks_by_ids(session, user_telegram_id, matching_ids)
 
-        # 5. Форматируем и отправляем результат
-        response_text = format_task_list(found_tasks, user_timezone, criteria_text=query_text)
+        # 5. Отправляем результат как инлайн-кнопки (без текстового списка)
         keyboard = create_tasks_keyboard(found_tasks, db_user)
         
-        await message.answer(response_text, reply_markup=keyboard)
+        if found_tasks:
+            response_text = f"Найдено задач: {len(found_tasks)}"
+            await message.answer(response_text, reply_markup=keyboard)
+        else:
+            await message.answer("Задач не найдено.")
 
     except Exception as e:
         logger.error(f"Error during LLM-based task search for user {user_telegram_id}: {e}", exc_info=True)

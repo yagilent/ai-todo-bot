@@ -70,8 +70,10 @@ async def handle_natural_language_query(
             await message.reply("Не удалось обработать ваш профиль. Пожалуйста, попробуйте выполнить команду /start.")
             return
 
-        # Вызов LLM для определения намерения
-        llm_result = await process_user_input(user_text)
+        # Вызов LLM для определения намерения (с новыми параметрами)
+        is_reply = context_task_id is not None
+        user_timezone = db_user.timezone if db_user.timezone else "Europe/Moscow"
+        llm_result = await process_user_input(user_text, is_reply=is_reply, user_timezone=user_timezone)
         logger.debug(f"LLM intent result for user {user_telegram_id}: {llm_result}")
 
         status = llm_result.get("status")

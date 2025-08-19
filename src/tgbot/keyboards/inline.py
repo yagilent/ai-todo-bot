@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.database.models import Task, User
 
-from src.utils.formatters import format_datetime_human
+from src.utils.formatters import format_reminder_time_human
 
 # --- ИЗМЕНЕНИЕ: Пока не нужен префикс для обработчика ---
 # TASK_STATUS_TOGGLE_PREFIX = "toggle_status:"
@@ -39,17 +39,38 @@ def create_tasks_keyboard(tasks: List[Task], db_user: User) -> InlineKeyboardMar
 
         task_date_time_text = ""
 
-        due_datetime = format_datetime_human(task.due_date, task.due_datetime, task.has_time, db_user.timezone)
-        notification_datetime = format_datetime_human(None, task.next_reminder_at, True, db_user.timezone)
-
+        # УПРОЩЕНИЕ: Показываем только время напоминания (время события больше не используется)
         if (task.status == 'done'):
             task_date_time_text = "✅"
-        elif (task.has_time and due_datetime):
-            task_date_time_text = "⏱️" + due_datetime
-        elif (not notification_datetime and not task.has_time and due_datetime):
-            task_date_time_text = "🗓" + due_datetime +" 🔕"
-        elif (notification_datetime):
-            task_date_time_text = "🔔" + notification_datetime
+        elif task.next_reminder_at:
+            # Проверяем, не прошло ли время напоминания
+            try:
+                import pendulum
+                now_local = pendulum.now(db_user.timezone)
+                reminder_local = pendulum.instance(task.next_reminder_at).in_timezone(db_user.timezone)
+                is_overdue = reminder_local < now_local
+                
+                # Форматируем время напоминания
+                notification_datetime = format_reminder_time_human(task.next_reminder_at, db_user.timezone)
+                if notification_datetime:
+                    # Выбираем иконку: перечеркнутый колокольчик если время прошло
+                    reminder_icon = "🔕" if is_overdue else "🔔"
+                    task_date_time_text = reminder_icon + notification_datetime
+                else:
+                    # Если форматирование не удалось, всё равно показываем время с иконкой
+                    reminder_icon = "🔕" if is_overdue else "🔔"
+                    fallback_time = reminder_local.format("DD.MM HH:mm")
+                    task_date_time_text = reminder_icon + fallback_time
+            except Exception:
+                # Fallback при любой ошибке - показываем хотя бы время напоминания
+                try:
+                    fallback_time = task.next_reminder_at.strftime("%d.%m %H:%M")
+                    task_date_time_text = "🔔" + fallback_time
+                except Exception:
+                    task_date_time_text = "🔔"
+        else:
+            # Нет времени напоминания - показываем перечеркнутый колокольчик
+            task_date_time_text = "🔕"
 
         
         button_text = f"{task_title} {task_date_time_text}"

@@ -30,6 +30,9 @@ async def handle_add_task(
     description = params.get("description")
     due_text = params.get("due_date_time_text")
     reminder_text = params.get("reminder_text")
+    
+    # НОВОЕ: Получаем готовое время напоминания из коротких промптов
+    parsed_reminder_utc = params.get("parsed_reminder_utc")
 
     if not description:
         await message.reply("Не удалось извлечь описание задачи.")
@@ -38,24 +41,16 @@ async def handle_add_task(
     task_title = await generate_title_with_llm(description)
     logger.debug(f"Task title generated: {task_title}")
 
-    user_timezone = db_user.timezone # Таймзона нужна для парсинга
+    # УПРОЩЁННАЯ ЛОГИКА: Используем только готовое время напоминания
+    reminder_datetime = None
+    if parsed_reminder_utc:
+        try:
+            reminder_datetime = pendulum.parse(parsed_reminder_utc)
+            logger.info(f"Using reminder time from new prompts: {reminder_datetime}")
+        except Exception as e:
+            logger.error(f"Failed to parse reminder time from prompts: {parsed_reminder_utc}, error: {e}")
 
-    # Парсинг основной даты/времени/повторения
-    parsed_due_info = await text_to_datetime_obj(due_text, user_timezone) if due_text else {}
-    parsed_reminder_info = await text_to_datetime_obj(reminder_text, user_timezone) if reminder_text else {}
-
-    final_dates = get_due_and_notification_datetime(
-        current_due_obj=None,
-        current_notification_dt=None,
-        new_due_obj={ # Данные из парсинга due_text
-            'date': parsed_due_info.get('date'),
-            'datetime': parsed_due_info.get('datetime'),
-            'has_time': parsed_due_info.get('has_time', False)
-        },
-        new_notification_obj={ # Данные из парсинга reminder_text
-             'datetime': parsed_reminder_info.get('datetime')
-        }
-    )
+    # Больше НЕ парсим время события - только время напоминания!
 
     # --- Добавление в БД ---
     try:
@@ -64,13 +59,14 @@ async def handle_add_task(
             user_telegram_id=db_user.telegram_id,
             description=description,
             title=task_title,
-            due_date=final_dates['due_date'],
-            due_datetime=final_dates['due_datetime'],
-            has_time=final_dates['due_has_time'],
+            # УБИРАЕМ время события - оставляем только время напоминания
+            due_date=None,
+            due_datetime=None,
+            has_time=False,
             original_due_text=due_text,
-            is_repeating=parsed_due_info.get('is_repeating', False),
-            recurrence_rule=parsed_due_info.get('rrule'),
-            next_reminder_at=final_dates['notification_datetime'], # Берем итоговое
+            is_repeating=False,  # Пока не поддерживается
+            recurrence_rule=None,  # Пока не поддерживается
+            next_reminder_at=reminder_datetime,  # Готовое время напоминания из промптов
             raw_input=message.text
        )
         # --- Ответ пользователю ---
