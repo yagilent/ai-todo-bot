@@ -40,7 +40,8 @@ async def set_bot_commands(bot: Bot):
     commands = [
         types.BotCommand(command="/today", description="Задачи на сегодня"),
         types.BotCommand(command="/tomorrow", description="Задачи на завтра"),
-        types.BotCommand(command="/overdue", description="❗️ Просроченные задачи ❗️"),
+        types.BotCommand(command="/all", description="Все активные задачи"),
+        types.BotCommand(command="/allrec", description="🔄 Повторяющиеся задачи"),
     ]
     try:
         await bot.set_my_commands(commands, scope=types.BotCommandScopeDefault())

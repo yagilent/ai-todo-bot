@@ -22,6 +22,13 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> Op
     result = await session.execute(select(User).where(User.telegram_id == telegram_id))
     return result.scalar_one_or_none()
 
+async def get_all_active_users(session: AsyncSession) -> List[User]:
+    """Получает всех активных пользователей (имеющих задачи)."""
+    result = await session.execute(
+        select(User).join(Task, User.telegram_id == Task.user_telegram_id).distinct()
+    )
+    return result.scalars().all()
+
 async def create_user(
     session: AsyncSession,
     telegram_id: int,
@@ -358,7 +365,8 @@ async def find_tasks_by_criteria(
     search_text: Optional[str] = None, # Поиск по тексту в описании и заголовке
     start_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
     end_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
-    status: Optional[str] = 'pending'
+    status: Optional[str] = 'pending',
+    include_null_reminders: bool = False  # Включать ли задачи с next_reminder_at=NULL (только для /today)
 ) -> List[Task]:
     """
     УПРОЩЁННАЯ ВЕРСИЯ: Ищет задачи пользователя по критериям.
@@ -370,20 +378,8 @@ async def find_tasks_by_criteria(
 
     stmt = select(Task).where(Task.user_telegram_id == user_telegram_id)
 
-    # Фильтр по статусу
-    if status == 'overdue':
-        # УПРОЩЕНИЕ: Просроченные - это те, у кого время напоминания прошло
-        stmt = stmt.where(Task.status == 'pending')
-        now_utc = pendulum.now('UTC')
-        stmt = stmt.where(
-            and_(
-                Task.next_reminder_at.is_not(None),
-                Task.next_reminder_at < now_utc
-            )
-        )
-        start_date = None # Игнорируем даты для overdue
-        end_date = None
-    elif status and status != 'all':
+    # Фильтр по статусу  
+    if status and status != 'all':
         stmt = stmt.where(Task.status == status)
 
     # Фильтр по текстовому запросу
@@ -394,14 +390,29 @@ async def find_tasks_by_criteria(
             (Task.title.ilike(search_pattern))
         )
 
-    # УПРОЩЕНИЕ: Фильтрация только по времени напоминания
+    # УПРОЩЕНИЕ: Фильтрация по времени напоминания
     if start_date and end_date:
-        stmt = stmt.where(
-            and_(
-                Task.next_reminder_at >= start_date,
-                Task.next_reminder_at <= end_date
+        if include_null_reminders:
+            # Для /today включаем задачи с next_reminder_at=NULL
+            stmt = stmt.where(
+                or_(
+                    # Стандартный случай - задачи с назначенным временем в диапазоне
+                    and_(
+                        Task.next_reminder_at >= start_date,
+                        Task.next_reminder_at <= end_date
+                    ),
+                    # Задачи без назначенного времени (только для /today)
+                    Task.next_reminder_at == None
+                )
             )
-        )
+        else:
+            # Для /tomorrow и других команд - только задачи с назначенным временем
+            stmt = stmt.where(
+                and_(
+                    Task.next_reminder_at >= start_date,
+                    Task.next_reminder_at <= end_date
+                )
+            )
     elif start_date:
         stmt = stmt.where(Task.next_reminder_at >= start_date)
     elif end_date:

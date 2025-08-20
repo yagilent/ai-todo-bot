@@ -21,7 +21,9 @@ from src.llm.prompts import (
     TASK_PARSING_PROMPT, 
     REMINDER_TIME_PARSING_PROMPT,
     RESCHEDULE_TIME_EXTRACTION_PROMPT,
-    EDIT_DESCRIPTION_EXTRACTION_PROMPT
+    EDIT_DESCRIPTION_EXTRACTION_PROMPT,
+    RECURRING_DETECTION_PROMPT,
+    RRULE_GENERATION_PROMPT
 )
 
 import pendulum # Нужен для получения текущего времени
@@ -381,14 +383,44 @@ async def _process_add_task(user_text: str, user_timezone: str) -> dict:
 
         params = {"description": description}
 
-        # Обрабатываем время напоминания, если указано
+        # НОВОЕ: Проверяем на рекуррентность (используем оригинальный текст)
+        recurring_info = await detect_recurring_pattern(user_text)
+        if recurring_info and recurring_info.get("is_recurring"):
+            pattern = recurring_info.get("pattern")
+            logger.info(f"Detected recurring task: '{pattern}'")
+            
+            # Генерируем RRULE
+            rrule = await generate_rrule(pattern) if pattern else None
+            
+            # Добавляем информацию о повторении в параметры
+            params["is_repeating"] = True
+            params["recurrence_pattern"] = pattern
+            params["recurrence_rule"] = rrule
+        else:
+            params["is_repeating"] = False
+            params["recurrence_rule"] = None
+
+        # Обрабатываем время напоминания
         if reminder_time_text:
+            # Обычный случай - время напоминания извлечено из описания
             reminder_utc = await parse_reminder_time_simple(reminder_time_text, user_timezone)
             if reminder_utc:
                 params["due_date_time_text"] = reminder_time_text
                 params["parsed_reminder_utc"] = reminder_utc
             else:
                 logger.warning(f"Failed to parse reminder time: '{reminder_time_text}'")
+        elif params.get("is_repeating") and params.get("recurrence_pattern"):
+            # ИСПРАВЛЕНИЕ: Для рекуррентных задач без времени напоминания используем pattern
+            pattern = params.get("recurrence_pattern")
+            logger.info(f"Recurring task without reminder_time, using pattern for reminder: '{pattern}'")
+            
+            reminder_utc = await parse_reminder_time_simple(pattern, user_timezone)
+            if reminder_utc:
+                params["due_date_time_text"] = pattern
+                params["parsed_reminder_utc"] = reminder_utc
+                logger.info(f"Successfully parsed reminder from pattern: {reminder_utc}")
+            else:
+                logger.warning(f"Failed to parse reminder time from pattern: '{pattern}'")
 
         return {"status": "success", "intent": "add_task", "params": params}
 
@@ -676,4 +708,104 @@ async def find_tasks_with_llm(
     except Exception as e:
         error_type = type(e).__name__
         logger.error(f"Error during LLM task search API call ({error_type}): {e}", exc_info=True)
+        return None
+
+
+# === ФУНКЦИИ ДЛЯ РАБОТЫ С РЕКУРРЕНТНЫМИ ЗАДАЧАМИ ===
+
+async def detect_recurring_pattern(description: str) -> Optional[Dict[str, Any]]:
+    """
+    Определяет, является ли задача повторяющейся и извлекает паттерн.
+    
+    Args:
+        description: Описание задачи
+        
+    Returns:
+        Dict с ключами is_recurring, pattern или None при ошибке
+    """
+    if not model or not description:
+        return None
+        
+    prompt = RECURRING_DETECTION_PROMPT.format(DESCRIPTION=description)
+    
+    try:
+        response = await model.generate_content_async(prompt)
+        
+        if not response.candidates:
+            logger.warning("LLM response blocked for recurring detection")
+            return None
+            
+        raw_text = response.text.strip()
+        
+        # Очистка от markdown
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+        
+        result = json.loads(raw_text)
+        
+        is_recurring = result.get("is_recurring", False)
+        pattern = result.get("pattern")
+        
+        logger.info(f"Recurring detection - Description: '{description[:50]}...', "
+                   f"Is recurring: {is_recurring}, Pattern: '{pattern}'")
+        
+        return {
+            "is_recurring": is_recurring,
+            "pattern": pattern
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse recurring detection JSON: {e}. Raw: {raw_text}")
+        return None
+    except Exception as e:
+        logger.error(f"Error in recurring pattern detection: {e}")
+        return None
+
+
+async def generate_rrule(pattern: str) -> Optional[str]:
+    """
+    Генерирует RRULE строку для повторяющегося паттерна.
+    
+    Args:
+        pattern: Паттерн повторения на русском языке
+        
+    Returns:
+        RRULE строка или None при ошибке
+    """
+    if not model or not pattern:
+        return None
+        
+    current_time = pendulum.now().to_iso8601_string()
+    prompt = RRULE_GENERATION_PROMPT.format(
+        CURRENT_TIME=current_time,
+        PATTERN=pattern
+    )
+    
+    try:
+        response = await model.generate_content_async(prompt)
+        
+        if not response.candidates:
+            logger.warning("LLM response blocked for RRULE generation")
+            return None
+            
+        raw_text = response.text.strip()
+        
+        # RRULE обычно возвращается как простой текст, не JSON
+        if raw_text and raw_text.lower() != "null":
+            # Валидируем что это похоже на RRULE
+            if "FREQ=" in raw_text:
+                logger.info(f"Generated RRULE for pattern '{pattern}': {raw_text}")
+                return raw_text
+            else:
+                logger.warning(f"Invalid RRULE format: {raw_text}")
+                return None
+        else:
+            logger.info(f"No RRULE could be generated for pattern: '{pattern}'")
+            return None
+        
+    except Exception as e:
+        logger.error(f"Error in RRULE generation: {e}")
         return None

@@ -24,7 +24,8 @@ async def find_and_reply(
     status: str,
     start_date: Optional[pendulum.DateTime],
     end_date: Optional[pendulum.DateTime],
-    title_prefix: str # Для заголовка ответа
+    title_prefix: str, # Для заголовка ответа
+    include_null_reminders: bool = False  # Для /today
 ):
     """Вспомогательная функция для поиска и ответа."""
     try:
@@ -35,7 +36,8 @@ async def find_and_reply(
             search_text=None, # Для команд поиск по тексту не нужен
             start_date=start_date, # Передаем start_date (pendulum или None)
             end_date=end_date,     # Передаем end_date (pendulum или None)
-            status=status          # Передаем status
+            status=status,         # Передаем status
+            include_null_reminders=include_null_reminders
         )
 
         keyboard = create_tasks_keyboard(tasks, db_user)
@@ -62,7 +64,7 @@ async def handle_today_command(message: types.Message, session: AsyncSession):
     start_date_utc = now_local.start_of('day').in_timezone('UTC')
     end_date_utc = now_local.end_of('day').in_timezone('UTC')
 
-    await find_and_reply(message, session, user, None, start_date_utc, end_date_utc, "Задачи на сегодня")
+    await find_and_reply(message, session, user, None, start_date_utc, end_date_utc, "Задачи на сегодня", include_null_reminders=True)
 
 
 @find_commands_router.message(Command("tomorrow"))
@@ -79,23 +81,56 @@ async def handle_tomorrow_command(message: types.Message, session: AsyncSession)
     await find_and_reply(message, session, user, None, start_date_utc, end_date_utc, "Задачи на завтра")
 
 
-@find_commands_router.message(Command("overdue"))
-async def handle_overdue_command(message: types.Message, session: AsyncSession):
-    """Обрабатывает команду /overdue."""
-    user_id = message.from_user.id
-    user = await get_or_create_user(session, user_id, message.from_user.full_name, message.from_user.username)
-    if not user: await message.answer("Ошибка профиля."); return
-
-    # find_tasks сама обрабатывает статус 'overdue'
-    await find_and_reply(message, session, user, 'overdue', None, None, "Просроченные задачи")
-
-
-@find_commands_router.message(Command("all_pending"))
-async def handle_all_pending_command(message: types.Message, session: AsyncSession):
-    """Обрабатывает команду /all_pending."""
+@find_commands_router.message(Command("all"))
+async def handle_all_command(message: types.Message, session: AsyncSession):
+    """Обрабатывает команду /all - все активные задачи."""
     user_id = message.from_user.id
     user = await get_or_create_user(session, user_id, message.from_user.full_name, message.from_user.username)
     if not user: await message.answer("Ошибка профиля."); return
 
     # Ищем все задачи со статусом pending без фильтра по дате
     await find_and_reply(message, session, user, 'pending', None, None, "Все активные задачи")
+
+
+@find_commands_router.message(Command("allrec"))
+async def handle_allrec_command(message: types.Message, session: AsyncSession):
+    """Обрабатывает команду /allrec - все повторяющиеся активные задачи."""
+    user_id = message.from_user.id
+    user = await get_or_create_user(session, user_id, message.from_user.full_name, message.from_user.username)
+    if not user: await message.answer("Ошибка профиля."); return
+
+    # Ищем повторяющиеся задачи
+    await find_recurring_tasks_and_reply(message, session, user)
+
+
+async def find_recurring_tasks_and_reply(
+    message: types.Message,
+    session: AsyncSession, 
+    db_user: User
+):
+    """Находит и отвечает повторяющимися задачами."""
+    try:
+        # Используем прямой запрос для рекуррентных задач
+        tasks = await find_tasks_by_criteria(
+            session=session,
+            db_user=db_user,
+            search_text=None,
+            start_date=None,
+            end_date=None, 
+            status='pending'
+        )
+        
+        # Фильтруем только задачи с recurrence_rule
+        recurring_tasks = [task for task in tasks if task.recurrence_rule]
+        
+        keyboard = create_tasks_keyboard(recurring_tasks, db_user)
+        
+        if recurring_tasks:
+            response_text = f"Повторяющиеся задачи: {len(recurring_tasks)}"
+            await message.answer(response_text, reply_markup=keyboard)
+        else:
+            await message.answer("Повторяющиеся задачи: не найдено.")
+            
+    except Exception as e:
+        logger.error(f"Error processing /allrec command for user {db_user.telegram_id}: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при поиске повторяющихся задач.")

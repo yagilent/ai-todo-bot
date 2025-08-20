@@ -71,9 +71,11 @@ def create_tasks_keyboard(tasks: List[Task], db_user: User) -> InlineKeyboardMar
         else:
             # Нет времени напоминания - показываем перечеркнутый колокольчик
             task_date_time_text = "🔕"
-
         
-        button_text = f"{task_title} {task_date_time_text}"
+        # Добавляем иконку повторения если есть RRULE
+        repeat_icon = "🔄" if task.recurrence_rule else ""
+        
+        button_text = f"{task_title} {task_date_time_text}{repeat_icon}"
         
         # Или можно использовать заголовок, если он есть:
         # text_part = task.title if task.title else task.description

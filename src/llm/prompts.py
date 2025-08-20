@@ -179,31 +179,57 @@ Return only JSON:
 # === ПРОМПТЫ ДЛЯ РЕКУРРЕНТНОСТИ (для будущего использования) ===
 
 RECURRING_DETECTION_PROMPT = """
-Analyze if task description contains recurring pattern.
+Analyze Russian text to detect if task contains recurring/repeating pattern.
+
+Recurring indicators:
+- "каждый день/неделю/месяц/год"
+- "каждый понедельник/вторник..." 
+- "каждые 2 недели/3 дня..."
+- "15 числа каждого месяца"
+- "раз в неделю/месяц"
+- "ежедневно/еженедельно/ежемесячно"
+- "по понедельникам/вторникам..."
+- Anniversary patterns: "день рождения", "годовщина"
 
 Examples:
-"каждый понедельник напоминай про встречу" → {{"is_recurring": true, "pattern": "каждый понедельник"}}
-"15 числа каждого месяца оплата интернета" → {{"is_recurring": true, "pattern": "15 числа каждого месяца"}}  
-"день рождения 15 марта" → {{"is_recurring": true, "pattern": "15 марта каждый год"}}
+"каждый понедельник встреча с командой" → {{"is_recurring": true, "pattern": "каждый понедельник"}}
+"15 числа каждого месяца оплата интернета" → {{"is_recurring": true, "pattern": "15 числа каждого месяца"}}
+"день рождения мамы 15 марта" → {{"is_recurring": true, "pattern": "15 марта каждый год"}}
+"поливать цветы каждые 3 дня" → {{"is_recurring": true, "pattern": "каждые 3 дня"}}
+"ежедневно принимать витамины" → {{"is_recurring": true, "pattern": "каждый день"}}
+"раз в неделю уборка" → {{"is_recurring": true, "pattern": "каждую неделю"}}
 "купить молоко завтра" → {{"is_recurring": false, "pattern": null}}
+"сделать презентацию до пятницы" → {{"is_recurring": false, "pattern": null}}
 
 Text: "{DESCRIPTION}"
 
 Return only JSON:
+{{"is_recurring": true/false, "pattern": "extracted pattern or null"}}
 """
 
 RRULE_GENERATION_PROMPT = """
-Convert recurring pattern to RRULE format.
+Convert Russian recurring pattern to RRULE format (RFC 5545 standard).
 
-Pattern: "{PATTERN}"
-First occurrence time: {FIRST_TIME}
+Current time: {CURRENT_TIME}
+Recurring pattern: "{PATTERN}"
+
+Day mapping: понедельник=MO, вторник=TU, среда=WE, четверг=TH, пятница=FR, суббота=SA, воскресенье=SU
+Month mapping: январь=1, февраль=2, март=3, апрель=4, май=5, июнь=6, июль=7, август=8, сентябрь=9, октябрь=10, ноябрь=11, декабрь=12
 
 Examples:
+"каждый день" → "FREQ=DAILY"
 "каждый понедельник" → "FREQ=WEEKLY;BYDAY=MO"
+"каждые 3 дня" → "FREQ=DAILY;INTERVAL=3"
+"каждые 2 недели" → "FREQ=WEEKLY;INTERVAL=2"
 "15 числа каждого месяца" → "FREQ=MONTHLY;BYMONTHDAY=15"
+"первый понедельник месяца" → "FREQ=MONTHLY;BYDAY=1MO"
+"последний день месяца" → "FREQ=MONTHLY;BYMONTHDAY=-1"
 "15 марта каждый год" → "FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=15"
+"каждую неделю" → "FREQ=WEEKLY"
+"ежедневно" → "FREQ=DAILY"
+"по понедельникам" → "FREQ=WEEKLY;BYDAY=MO"
 
-Return only RRULE string or null:
+Return only RRULE string (without "RRULE:" prefix) or null if cannot parse:
 """
 
 # === ПРОМПТЫ ДЛЯ ДРУГИХ ИНТЕНТОВ ===

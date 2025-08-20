@@ -108,6 +108,10 @@ def format_task_list(tasks: List[Task], timezone: str, criteria_text: Optional[s
                 except Exception as e:
                     # Fallback при ошибке
                     line += f" (🔔 <i>{formatted_reminder}</i>)"
+                    
+        # Показываем RRULE если есть
+        if task.recurrence_rule:
+            line += f" ({task.recurrence_rule})"
 
         response_lines.append(line)
 

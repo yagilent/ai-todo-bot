@@ -14,6 +14,7 @@ asyncpg
 # Date/Time parsing and handling
 pytz
 pendulum
+python-dateutil
 
 # Configuration loading
 python-dotenv

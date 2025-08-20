@@ -59,13 +59,9 @@ async def handle_add_task(
             user_telegram_id=db_user.telegram_id,
             description=description,
             title=task_title,
-            # УБИРАЕМ время события - оставляем только время напоминания
-            due_date=None,
-            due_datetime=None,
-            has_time=False,
             original_due_text=due_text,
-            is_repeating=False,  # Пока не поддерживается
-            recurrence_rule=None,  # Пока не поддерживается
+            is_repeating=params.get("is_repeating", False),  # НОВОЕ: Из промптов
+            recurrence_rule=params.get("recurrence_rule"),  # НОВОЕ: Из промптов
             next_reminder_at=reminder_datetime,  # Готовое время напоминания из промптов
             raw_input=message.text
        )

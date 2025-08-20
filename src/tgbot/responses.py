@@ -63,6 +63,11 @@ async def send_task_operation_confirmation(
 
     
     response_lines.append(date_time_text)
+    
+    # Показываем RRULE если есть
+    if task.recurrence_rule:
+        response_lines.append(f"({task.recurrence_rule})")
+    
     # Всегда добавляем ID
     response_lines.append(f"(ID: {task.task_id})")
 
