@@ -14,6 +14,11 @@ TASK_BUTTON_CALLBACK_DUMMY = "task_button_pressed" # Или просто ID: f"t
 
 TASK_VIEW_PREFIX = "view_task:"
 
+# Префиксы для кнопок напоминаний
+REMINDER_COMPLETE_PREFIX = "reminder_complete:"
+REMINDER_SNOOZE_HOUR_PREFIX = "reminder_snooze_hour:"  
+REMINDER_SNOOZE_TOMORROW_PREFIX = "reminder_snooze_tomorrow:"
+
 def create_tasks_keyboard(tasks: List[Task], db_user: User) -> InlineKeyboardMarkup:
     """
     Создает инлайн-клавиатуру со списком задач и визуальными чекбоксами.
@@ -97,3 +102,45 @@ def create_tasks_keyboard(tasks: List[Task], db_user: User) -> InlineKeyboardMar
     # TODO: Добавить кнопки пагинации, "Выбрать"
 
     return builder.as_markup()
+
+
+def create_task_actions_keyboard(task_id: int, context: str = "reminder") -> InlineKeyboardMarkup:
+    """
+    Создает инлайн-клавиатуру с действиями для задачи.
+    
+    Args:
+        task_id: ID задачи для которой создается клавиатура
+        context: Контекст использования ("reminder" или "view")
+        
+    Returns:
+        InlineKeyboardMarkup с кнопками действий
+    """
+    builder = InlineKeyboardBuilder()
+    
+    # Кнопка "Сделано" - отмечает задачу как выполненную
+    builder.row(InlineKeyboardButton(
+        text="✅ Сделано",
+        callback_data=f"{REMINDER_COMPLETE_PREFIX}{task_id}"
+    ))
+    
+    # Кнопка "Напомни через час"
+    builder.row(InlineKeyboardButton(
+        text="⏰ Напомни через час",
+        callback_data=f"{REMINDER_SNOOZE_HOUR_PREFIX}{task_id}"
+    ))
+    
+    # Кнопка "Напомни завтра"
+    builder.row(InlineKeyboardButton(
+        text="📅 Напомни завтра",
+        callback_data=f"{REMINDER_SNOOZE_TOMORROW_PREFIX}{task_id}"
+    ))
+    
+    return builder.as_markup()
+
+
+def create_reminder_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    """
+    Создает инлайн-клавиатуру для уведомления о задаче.
+    Обертка для обратной совместимости.
+    """
+    return create_task_actions_keyboard(task_id, "reminder")

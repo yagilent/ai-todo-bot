@@ -62,7 +62,8 @@ async def handle_view_task_callback(
             message=message, # Используем message для отправки в тот же чат
             action_title="", # Заголовок для сообщения
             task=task,
-            user=db_user
+            user=db_user,
+            include_action_buttons=True  # Добавляем кнопки действий к просмотру задач
         )
 
         # Просто отвечаем на колбэк, чтобы убрать "часики"

@@ -9,6 +9,7 @@ import pendulum # Для форматирования дат
 from src.database.models import Task, User
 
 from src.utils.formatters import format_reminder_time_human
+from src.tgbot.keyboards.inline import create_reminder_keyboard, create_task_actions_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,8 @@ async def send_task_operation_confirmation(
     message: types.Message,
     action_title: str, # Что было сделано: "Задача добавлена", "Срок изменен" и т.д.
     task: Task, # Объект задачи (уже обновленный или новый)
-    user: User # Объект пользователя (нужен для таймзоны)
+    user: User, # Объект пользователя (нужен для таймзоны)
+    include_action_buttons: bool = False  # Добавить кнопки действий (Сделано, Перенести)
 ):
     """
     Отправляет унифицированное сообщение о результате операции с задачей.
@@ -72,16 +74,21 @@ async def send_task_operation_confirmation(
     response_lines.append(f"(ID: {task.task_id})")
 
     response_text = "\n".join(response_lines)
+    
+    # Создаем клавиатуру с кнопками если запрошено
+    keyboard = None
+    if include_action_buttons and task.status == 'pending':  # Кнопки только для активных задач
+        keyboard = create_task_actions_keyboard(task.task_id, "view")
 
     # Отправляем ответ на исходное сообщение пользователя
     try:
-        await message.answer(response_text)
+        await message.answer(response_text, reply_markup=keyboard)
     except Exception as e:
         # Ловим возможные ошибки отправки (например, сообщение удалено)
         logger.error(f"Failed to send task confirmation reply to user {message.from_user.id}: {e}")
         # Пытаемся отправить обычное сообщение
         try:
-            await message.answer(response_text)
+            await message.answer(response_text, reply_markup=keyboard)
         except Exception as e2:
              logger.error(f"Failed to send task confirmation answer to user {message.from_user.id}: {e2}")
 
@@ -114,9 +121,8 @@ async def send_reminder_notification(
     reminder_lines.append(f"\n\n(ID: {task.task_id})") # ID для возможного реплая
     reminder_text = "\n".join(reminder_lines)
 
-    # TODO: Создать и добавить инлайн-кнопки ("Сделано", "Отложить...")
-    # keyboard = create_reminder_keyboard(task.task_id)
-    keyboard = None # Пока без кнопок
+    # Создаем клавиатуру с кнопками действий
+    keyboard = create_reminder_keyboard(task.task_id)
 
     try:
         # Используем bot.send_message

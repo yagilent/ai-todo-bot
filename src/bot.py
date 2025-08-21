@@ -23,6 +23,8 @@ from src.tgbot.handlers.find_tasks_commands import find_commands_router
 
 from src.tgbot.handlers.task_manage import task_manage_router
 
+from src.tgbot.handlers.reminder_callbacks import reminder_callbacks_router
+
 from src.scheduler.scheduler_setup import setup_scheduler, shutdown_scheduler, scheduler # Импортируем сам объект scheduler
 from src.scheduler.jobs import register_jobs
 
@@ -128,6 +130,7 @@ async def main():
 
     # Подключаем роутеры для обработки команд и сообщений
     dp.include_router(find_commands_router)
+    dp.include_router(reminder_callbacks_router)  # Добавляем обработчик callback'ов напоминаний
     dp.include_router(nlp_router)
     dp.include_router(task_manage_router) 
     logger.info("Routers included.")
