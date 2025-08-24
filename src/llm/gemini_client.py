@@ -312,7 +312,7 @@ async def _extract_edit_description(user_text: str) -> Optional[Dict]:
         return None
 
 # --- Основная функция обработки ввода (НОВАЯ ВЕРСИЯ с цепочкой коротких промптов) ---
-async def process_user_input(user_text: str, is_reply: bool = False, user_timezone: str = "Europe/Moscow") -> dict:
+async def process_user_input(user_text: str, is_reply: bool = False, user_timezone: str = "Europe/Moscow", progress_tracker=None) -> dict:
     """
     Обрабатывает текст пользователя с помощью цепочки коротких LLM запросов.
 
@@ -342,9 +342,20 @@ async def process_user_input(user_text: str, is_reply: bool = False, user_timezo
 
         logger.info(f"Detected intent: '{intent}' for text: '{user_text[:50]}...'")
 
+        # Обновляем прогресс в зависимости от интента
+        if progress_tracker:
+            if intent == "add_task":
+                await progress_tracker.update("✨ Понял! Создаю задачу...", 1, 3)
+            elif intent == "find_tasks":
+                await progress_tracker.update("🔍 Готовлю поиск задач...", 1, 2)
+            elif intent in ["reschedule_task", "edit_task_description"]:
+                await progress_tracker.update("📝 Понял! Обрабатываю изменения...", 1, 2)
+            else:
+                await progress_tracker.update("✨ Понял тип запроса...", 1, 2)
+
         # Шаг 2: Обработка в зависимости от интента
         if intent == "add_task":
-            return await _process_add_task(user_text, user_timezone)
+            return await _process_add_task(user_text, user_timezone, progress_tracker)
         elif intent == "find_tasks":
             return {"status": "success", "intent": "find_tasks", "params": {"query_text": user_text}}
         elif intent == "complete_task":
@@ -366,7 +377,7 @@ async def process_user_input(user_text: str, is_reply: bool = False, user_timezo
         return {"status": "error", "message": f"Ошибка при обработке запроса ({error_type}).", "details": str(e)}
 
 
-async def _process_add_task(user_text: str, user_timezone: str) -> dict:
+async def _process_add_task(user_text: str, user_timezone: str, progress_tracker=None) -> dict:
     """Обрабатывает интент добавления задачи через цепочку промптов."""
     try:
         # Парсим задачу
@@ -383,11 +394,19 @@ async def _process_add_task(user_text: str, user_timezone: str) -> dict:
 
         params = {"description": description}
 
+        # Обновляем прогресс перед проверкой рекуррентности
+        if progress_tracker:
+            await progress_tracker.update("⏰ Определяю время напоминания...", 2, 3)
+
         # НОВОЕ: Проверяем на рекуррентность (используем оригинальный текст)
         recurring_info = await detect_recurring_pattern(user_text)
         if recurring_info and recurring_info.get("is_recurring"):
             pattern = recurring_info.get("pattern")
             logger.info(f"Detected recurring task: '{pattern}'")
+            
+            # Обновляем прогресс для рекуррентных задач
+            if progress_tracker:
+                await progress_tracker.update("🔄 Проверяю повторяемость...", 3, 3)
             
             # Генерируем RRULE
             rrule = await generate_rrule(pattern) if pattern else None

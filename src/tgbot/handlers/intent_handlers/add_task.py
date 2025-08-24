@@ -23,7 +23,8 @@ async def handle_add_task(
     message: types.Message,
     session: AsyncSession,
     db_user: User,
-    params: dict
+    params: dict,
+    progress_tracker=None
 ):
     """Обрабатывает намерение добавить задачу."""
     logger.debug(f"Handling add_task intent for user {db_user.telegram_id}")
@@ -38,6 +39,10 @@ async def handle_add_task(
         await message.reply("Не удалось извлечь описание задачи.")
         return
 
+    # Показываем статус генерации заголовка
+    if progress_tracker:
+        await progress_tracker.update("📝 Придумываю заголовок задачи...")
+    
     task_title = await generate_title_with_llm(description)
     logger.debug(f"Task title generated: {task_title}")
 
@@ -52,6 +57,10 @@ async def handle_add_task(
 
     # Больше НЕ парсим время события - только время напоминания!
 
+    # Показываем финальный статус перед сохранением в БД
+    if progress_tracker:
+        await progress_tracker.update("💾 Сохраняю задачу в базу...")
+    
     # --- Добавление в БД ---
     try:
         new_task = await add_task(
@@ -72,6 +81,13 @@ async def handle_add_task(
             task=new_task,
             user=db_user
         )
+        
+        # Завершаем трекер прогресса после успешного создания задачи
+        if progress_tracker:
+            await progress_tracker.finish()
     except Exception as e:
         logger.error(f"Failed to add task in intent handler for user {db_user.telegram_id}: {e}", exc_info=True)
+        # Завершаем трекер прогресса даже в случае ошибки
+        if progress_tracker:
+            await progress_tracker.finish()
         await message.reply("Не удалось сохранить задачу...")

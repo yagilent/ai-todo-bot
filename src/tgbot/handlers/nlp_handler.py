@@ -2,7 +2,7 @@
 
 import logging
 from typing import Optional
-from aiogram import F, Router, types
+from aiogram import F, Router, types, Bot
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.llm.gemini_client import process_user_input
 from src.database.crud import get_or_create_user
 from src.utils.parsers import extract_task_id_from_text
+from src.utils.llm_progress_tracker import LLMProgressTracker
 
 # Импортируем функции-обработчики для каждого интента
 from .intent_handlers import (
@@ -39,6 +40,7 @@ CONTEXTUAL_INTENTS = {
 @nlp_router.message(F.text, ~F.text.startswith('/'))
 async def handle_natural_language_query(
     message: types.Message,
+    bot: Bot, # Добавляем bot для трекера прогресса
     state: FSMContext, # Контекст FSM (пока не используется активно для этого хендлера)
     session: AsyncSession # Инжектируется middleware
 ):
@@ -70,11 +72,21 @@ async def handle_natural_language_query(
             await message.reply("Не удалось обработать ваш профиль. Пожалуйста, попробуйте выполнить команду /start.")
             return
 
-        # Вызов LLM для определения намерения (с новыми параметрами)
-        is_reply = context_task_id is not None
-        user_timezone = db_user.timezone if db_user.timezone else "Europe/Moscow"
-        llm_result = await process_user_input(user_text, is_reply=is_reply, user_timezone=user_timezone)
-        logger.debug(f"LLM intent result for user {user_telegram_id}: {llm_result}")
+        # Инициализируем трекер прогресса LLM
+        progress_tracker = LLMProgressTracker(bot, message.chat.id)
+        await progress_tracker.start("🤖 Анализирую тип запроса...")
+        
+        try:
+            # Вызов LLM для определения намерения (с новыми параметрами)
+            is_reply = context_task_id is not None
+            user_timezone = db_user.timezone if db_user.timezone else "Europe/Moscow"
+            llm_result = await process_user_input(user_text, is_reply=is_reply, user_timezone=user_timezone, progress_tracker=progress_tracker)
+            logger.debug(f"LLM intent result for user {user_telegram_id}: {llm_result}")
+            
+        except Exception as llm_error:
+            # В случае ошибки LLM завершаем трекер
+            await progress_tracker.finish()
+            raise llm_error
 
         status = llm_result.get("status")
         intent = llm_result.get("intent")
@@ -95,6 +107,9 @@ async def handle_natural_language_query(
                     elif intent == "snooze_task":
                         await handle_snooze_task(message, session, db_user, params, context_task_id)
                     # Добавить другие контекстные интенты здесь, если появятся
+                    
+                    # Завершаем трекер прогресса для контекстных интентов
+                    await progress_tracker.finish()
                 else:
                     # Интент требует контекста, но его нет
                     logger.warning(f"Contextual intent '{intent}' received without valid reply/task_id for user {user_telegram_id}")
@@ -102,31 +117,50 @@ async def handle_natural_language_query(
                         "Пожалуйста, используйте функцию 'Ответить' (Reply) на сообщении с задачей (у него должен быть ID в скобках), "
                         "чтобы я понял, к какой именно задаче применить команду."
                     )
+                    # Завершаем трекер прогресса и для случая отсутствия контекста
+                    await progress_tracker.finish()
             # Обработка неконтекстных интентов
             elif intent == "add_task":
                 # Передаем state, т.к. этот хендлер может инициировать FSM для таймзоны
-                await handle_add_task(message, session, db_user, params)
+                await handle_add_task(message, session, db_user, params, progress_tracker)
             elif intent == "find_tasks":
                 await handle_find_tasks(message, session, db_user, params)
+                # Завершаем трекер прогресса для поиска задач
+                await progress_tracker.finish()
             elif intent == "update_timezone":
                 await handle_update_timezone(message, session, db_user, params)
+                # Завершаем трекер прогресса для обновления таймзоны
+                await progress_tracker.finish()
             else:
                 # Успешный статус, но неизвестный интент
                 logger.warning(f"LLM success with unknown intent: {intent}")
                 await handle_unknown_intent(message) # Передаем управление обработчику неизвестных
+                # Завершаем трекер прогресса для неизвестного интента
+                await progress_tracker.finish()
 
         elif status == "clarification_needed":
              # Передаем state, т.к. этот обработчик точно работает с FSM
             await handle_clarification_request(message, llm_result)
+            # Завершаем трекер прогресса для запроса уточнения
+            await progress_tracker.finish()
 
         elif status == "unknown_intent":
             await handle_unknown_intent(message)
+            # Завершаем трекер прогресса для неизвестного интента
+            await progress_tracker.finish()
         elif status == "error":
             await handle_error_intent(message, llm_result)
+            # Завершаем трекер прогресса для ошибки
+            await progress_tracker.finish()
         else:
             logger.error(f"Unexpected LLM status: {status}")
             await message.reply("Произошла неожиданная ошибка при обработке вашего запроса.")
+            # Завершаем трекер прогресса для неожиданного статуса
+            await progress_tracker.finish()
 
     except Exception as e:
         logger.exception(f"General error in handle_natural_language_query for user {user_telegram_id}")
+        # Завершаем трекер прогресса в случае общей ошибки
+        if 'progress_tracker' in locals():
+            await progress_tracker.finish()
         await message.reply("💥 Ой! Что-то пошло не так при обработке вашего сообщения.")
