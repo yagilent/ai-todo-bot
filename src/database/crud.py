@@ -366,7 +366,8 @@ async def find_tasks_by_criteria(
     start_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
     end_date: Optional[datetime.datetime] = None, # UTC datetime - для фильтрации по времени напоминания
     status: Optional[str] = 'pending',
-    include_null_reminders: bool = False  # Включать ли задачи с next_reminder_at=NULL (только для /today)
+    include_null_reminders: bool = False,  # Включать ли задачи с next_reminder_at=NULL (только для /today)
+    completed_date_filter: bool = False  # Фильтровать по completed_at вместо next_reminder_at
 ) -> List[Task]:
     """
     УПРОЩЁННАЯ ВЕРСИЯ: Ищет задачи пользователя по критериям.
@@ -390,9 +391,17 @@ async def find_tasks_by_criteria(
             (Task.title.ilike(search_pattern))
         )
 
-    # УПРОЩЕНИЕ: Фильтрация по времени напоминания
+    # Фильтрация по времени
     if start_date and end_date:
-        if include_null_reminders:
+        if completed_date_filter:
+            # Фильтр по дате завершения (для completed задач)
+            stmt = stmt.where(
+                and_(
+                    Task.completed_at >= start_date,
+                    Task.completed_at <= end_date
+                )
+            )
+        elif include_null_reminders:
             # Для /today включаем задачи с next_reminder_at=NULL
             stmt = stmt.where(
                 or_(
@@ -414,9 +423,18 @@ async def find_tasks_by_criteria(
                 )
             )
     elif start_date:
-        stmt = stmt.where(Task.next_reminder_at >= start_date)
+        if completed_date_filter:
+            stmt = stmt.where(Task.completed_at >= start_date)
+        else:
+            stmt = stmt.where(Task.next_reminder_at >= start_date)
     elif end_date:
-        stmt = stmt.where(Task.next_reminder_at <= end_date)
+        if completed_date_filter:
+            stmt = stmt.where(Task.completed_at <= end_date)
+        else:
+            stmt = stmt.where(Task.next_reminder_at <= end_date)
+    elif include_null_reminders and not start_date and not end_date:
+        # Специальный случай: только задачи без назначенного времени
+        stmt = stmt.where(Task.next_reminder_at == None)
 
     # УПРОЩЁННАЯ сортировка: по времени напоминания, потом по дате создания
     stmt = stmt.order_by(

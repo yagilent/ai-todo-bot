@@ -64,7 +64,7 @@ async def handle_today_command(message: types.Message, session: AsyncSession):
     start_date_utc = now_local.start_of('day').in_timezone('UTC')
     end_date_utc = now_local.end_of('day').in_timezone('UTC')
 
-    await find_and_reply(message, session, user, None, start_date_utc, end_date_utc, "Задачи на сегодня", include_null_reminders=True)
+    await find_today_tasks_and_reply(message, session, user, start_date_utc, end_date_utc)
 
 
 @find_commands_router.message(Command("tomorrow"))
@@ -101,6 +101,72 @@ async def handle_allrec_command(message: types.Message, session: AsyncSession):
 
     # Ищем повторяющиеся задачи
     await find_recurring_tasks_and_reply(message, session, user)
+
+
+async def find_today_tasks_and_reply(
+    message: types.Message,
+    session: AsyncSession, 
+    db_user: User,
+    start_date_utc: pendulum.DateTime,
+    end_date_utc: pendulum.DateTime
+):
+    """Находит задачи на сегодня: pending с напоминанием/без + completed сегодня."""
+    try:
+        # 1. Pending задачи с напоминанием на сегодня
+        pending_with_reminder = await find_tasks_by_criteria(
+            session=session,
+            db_user=db_user,
+            search_text=None,
+            start_date=start_date_utc,
+            end_date=end_date_utc,
+            status='pending',
+            include_null_reminders=False
+        )
+        
+        # 2. Pending задачи без напоминания
+        pending_without_reminder = await find_tasks_by_criteria(
+            session=session,
+            db_user=db_user,
+            search_text=None,
+            start_date=None,
+            end_date=None,
+            status='pending',
+            include_null_reminders=True
+        )
+        
+        # 3. Задачи завершенные сегодня
+        completed_today = await find_tasks_by_criteria(
+            session=session,
+            db_user=db_user,
+            search_text=None,
+            start_date=start_date_utc,
+            end_date=end_date_utc,
+            status='done',
+            include_null_reminders=False,
+            completed_date_filter=True
+        )
+        
+        # Объединяем все задачи и убираем дубликаты
+        all_tasks = []
+        task_ids = set()
+        
+        for task_list in [pending_with_reminder, pending_without_reminder, completed_today]:
+            for task in task_list:
+                if task.task_id not in task_ids:
+                    all_tasks.append(task)
+                    task_ids.add(task.task_id)
+        
+        keyboard = create_tasks_keyboard(all_tasks, db_user)
+        
+        if all_tasks:
+            response_text = f"Задачи на сегодня: {len(all_tasks)}"
+            await message.answer(response_text, reply_markup=keyboard)
+        else:
+            await message.answer("Задачи на сегодня: не найдено.")
+            
+    except Exception as e:
+        logger.error(f"Error processing /today command for user {db_user.telegram_id}: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при поиске задач на сегодня.")
 
 
 async def find_recurring_tasks_and_reply(
