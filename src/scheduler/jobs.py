@@ -221,8 +221,8 @@ async def restore_daily_reminders_job(
                 try:
                     user_local = current_utc.in_timezone(user.timezone)
                     
-                    # Если у пользователя полночь (00:xx)
-                    if user_local.hour == 0:
+                    # Если у пользователя раннее утро (00:xx - 04:xx)
+                    if user_local.hour <= 4:
                         logger.info(f"Processing midnight restoration for user {user.telegram_id} in {user.timezone}")
                         count = await restore_user_daily_reminders(session, user, user_local.date())
                         restored_count += count
@@ -249,17 +249,14 @@ async def restore_user_daily_reminders(
     """
     import pendulum
     
-    # Находим задачи без next_reminder_at, но с недавним last_reminder_sent_at
-    yesterday = pendulum.instance(date).subtract(days=1)
+    # Находим ВСЕ задачи без next_reminder_at (независимо от давности)
     today_start = pendulum.instance(date).start_of('day')
     
     stmt = select(Task).where(
         Task.user_telegram_id == user.telegram_id,
         Task.status == 'pending',
         Task.next_reminder_at == None,
-        Task.last_reminder_sent_at != None,
-        Task.last_reminder_sent_at >= yesterday.start_of('day').in_timezone('UTC'),
-        Task.last_reminder_sent_at < today_start.in_timezone('UTC')
+        Task.last_reminder_sent_at != None
     )
     
     result = await session.execute(stmt)
